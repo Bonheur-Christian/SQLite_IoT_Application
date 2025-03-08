@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Station (MQTT WebSockets)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background-color: #f0f8ff; }
+        .container { width: 80%; margin: auto; padding: 20px; border: 2px solid #007BFF; border-radius: 10px; background: #ffffff; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); }
+        h2 { color: #007BFF; }
+        .data { font-size: 24px; font-weight: bold; color: #333; }
+        .chart-container { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h2>MQTT Weather Station</h2>
+    <div class="container">
+        <p>Temperature: <span id="temp" class="data">--</span> °C</p>
+        <p>Humidity: <span id="humidity" class="data">--</span> %</p>
+        <div class="chart-container">
+            <canvas id="weatherChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const mqttClient = mqtt.connect('ws://157.173.101.159:9001');
+            const ctx = document.getElementById('weatherChart').getContext('2d');
+            const weatherChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Temperature (°C)',
+                        data: [],
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        fill: false
+                    }, {
+                        label: 'Humidity (%)',
+                        data: [],
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        fill: false
+                    }]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute',
+                                tooltipFormat: 'PPpp',
+                                displayFormats: {
+                                    minute: 'HH:mm',
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Value'
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 1000,
+                    }
+                }
+            });
+
+            mqttClient.on('connect', () => {
+                console.log("Connected to MQTT via WebSockets");
+                mqttClient.subscribe("/work_group_01/room_temp/temperature");
+                mqttClient.subscribe("/work_group_01/room_temp/humidity");
+            });
+
+            mqttClient.on('message', (topic, message) => {
+                console.log(`Received: ${topic} → ${message.toString()}`);
+
+                const currentTime = new Date();
+                if (topic === "/work_group_01/room_temp/temperature") {
+                    const temp = parseFloat(message.toString());
+                    document.getElementById("temp").innerText = temp.toFixed(2);
+                    weatherChart.data.labels.push(currentTime);
+                    weatherChart.data.datasets[0].data.push(temp);
+                } else if (topic === "/work_group_01/room_temp/humidity") {
+                    const humidity = parseFloat(message.toString());
+                    document.getElementById("humidity").innerText = humidity.toFixed(2);
+                    weatherChart.data.datasets[1].data.push(humidity);
+                }
+
+                weatherChart.update();
+            });
+
+            setInterval(() => {
+                fetch('/data')
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log("Fetched data (interval):", data);
+
+                        const limitedData = data.slice(-20);
+                        const labels = limitedData.map(row => new Date(row.timestamp));
+                        const temperatures = limitedData.map(row => row.temperature);
+                        const humidities = limitedData.map(row => row.humidity);
+
+                        // Update the chart data
+                        weatherChart.data.labels = labels;
+                        weatherChart.data.datasets[0].data = temperatures;
+                        weatherChart.data.datasets[1].data = humidities;
+
+                        // Re-render the chart
+                        weatherChart.update();
+                    })
+                    .catch(error => console.error("Error fetching data (interval):", error));
+            }, 300000); // Update every 5 minutes
+        });
+    </script>
+</body>
+</html>
